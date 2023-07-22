@@ -16,15 +16,21 @@ class FileOrDirDialog(FileDialog):
         super().__init__(*args, **kwargs)
         assert obj_type in ("f", "d")
         self.obj_type = obj_type
-        if self.obj_type == "d":
-            self.ok_button.text = "Use this directory"
 
     def ok_command(self):
         file = self.get_selection()
-        if self.obj_type == "f" and os.path.isfile(file):
-            self.quit(file)
-            return
-        if self.obj_type == "d" and os.path.isdir(file):
+        if self.obj_type == "f":
+            if os.path.isfile(file):
+                self.quit(file)
+                return
+            else:
+                self.master.bell()
+                return
+
+        # self.obj_type == "d"
+        if os.path.isfile(file):
+            file = os.path.dirname(file)
+        if os.path.isdir(file):
             self.quit(file)
             return
         self.master.bell()
@@ -106,7 +112,6 @@ def pick_core(force: bool, rom: Path) -> Path:
         ["general", "core_path"],
         title="Path to Cores",
         obj_type="d",
-        initialdir="/Users/zacharyrubenstein/Library/Application Support/RetroArch/cores", # TODO intelligent guess by platform
         )
     if force:
         core = gui_ask_path(title="core", initialdir=core_path)
