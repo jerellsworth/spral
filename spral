@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+
+"""Stupid Python RetroArch Launcher"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+from tkinter import Tk
+from tkinter.filedialog import FileDialog
+from typing import Any, Callable, Dict, Iterable, Optional
+
+
+class FileOrDirDialog(FileDialog):
+    def __init__(self, *args, obj_type: str = "f", **kwargs):
+        super().__init__(*args, **kwargs)
+        assert obj_type in ("f", "d")
+        self.obj_type = obj_type
+        if self.obj_type == "d":
+            self.ok_button.text = "Use this directory"
+
+    def ok_command(self):
+        file = self.get_selection()
+        if self.obj_type == "f" and os.path.isfile(file):
+            self.quit(file)
+            return
+        if self.obj_type == "d" and os.path.isdir(file):
+            self.quit(file)
+            return
+        self.master.bell()
+
+    def files_double_event(self, event):
+        if self.obj_type == "f":
+            self.ok_command()
+
+
+def gui_ask_path(
+        title: str,
+        obj_type: str = "f",
+        initialdir: str = "/",  # TODO MS Windows?
+        ) -> Path:
+    root = Tk()
+    root.withdraw()
+    lfd = FileOrDirDialog(root, obj_type=obj_type, title=title)
+    fname = lfd.go(dir_or_file=initialdir)
+    root.destroy()
+    root.update_idletasks()
+    return Path(fname)
+
+
+class Config:
+    PATH = Path.home() / ".spral.json"
+
+    @classmethod
+    def _init_config_if_not_exists(cls):
+        if cls.PATH.exists():
+            return
+        cls.PATH.write_text(json.dumps({}))
+    
+    @classmethod
+    def get_conf(cls, key: [Iterable[str]]) -> str:
+        cls._init_config_if_not_exists()
+        cfg = json.loads(cls.PATH.read_text())
+        for k in key:
+            cfg = cfg[k]
+        assert isinstance(cfg, str)
+        return cfg
+
+    @classmethod
+    def set_conf(cls, key: Iterable[str], val: str):
+        cls._init_config_if_not_exists()
+        cfg = json.loads(cls.PATH.read_text())
+        cfg_root = cfg
+        for k in key[:-1]:
+            try:
+                cfg = cfg[k]
+            except KeyError:
+                new_cfg = {}
+                cfg[k] = new_cfg
+                cfg = new_cfg
+        cfg[key[-1]] = val
+        cls.PATH.write_text(json.dumps(cfg_root, indent=2))
+
+    @classmethod
+    def prompt_if_not_exists(
+        cls,
+        key: Iterable[str],
+        title: str,
+        obj_type: str = "f",
+        initialdir: str = "/",
+        ) -> Path:
+        try:
+            return Path(cls.get_conf(key))
+        except KeyError:
+            p = gui_ask_path(
+                title,
+                obj_type=obj_type,
+                initialdir=initialdir,
+                )
+            cls.set_conf(key, str(p))
+            return p
+
+
+def pick_core(force: bool, rom: Path) -> Path:
+    core_path = Config.prompt_if_not_exists(
+        ["general", "core_path"],
+        title="Path to Cores",
+        obj_type="d",
+        initialdir="/Users/zacharyrubenstein/Library/Application Support/RetroArch/cores", # TODO intelligent guess by platform
+        )
+    if force:
+        core = gui_ask_path(title="core", initialdir=core_path)
+    else:
+        core = Path(
+                Config.prompt_if_not_exists(
+                    ["default_cores", str(rom.parent)],
+                    title="core",
+                    initialdir=core_path,
+                    )
+                )
+    return Path(core)
+
+
+if __name__ == '__main__':
+    ra_path = Config.prompt_if_not_exists(
+        ["general", "ra_path"],
+        title="Path to RetroArch Executable",
+        )
+    parser = argparse.ArgumentParser(description="Launch RetroArch")
+    parser.add_argument("-c", help="Force choice of core", action="store_true")
+    parser.add_argument("ROM", nargs="?", default=None, type=Path)
+    args = parser.parse_args()
+    force_pick_core = args.c
+    rom = args.ROM
+
+    if rom is None:
+        initialdir = "/"
+        try:
+            last_rom = Config.get_conf(["general", "last_rom_picked"])
+            initialdir = Path(last_rom).parent
+        except KeyError:
+            pass
+        rom = gui_ask_path(
+            title="rom",
+            initialdir=initialdir,
+            )
+
+    core = pick_core(force_pick_core, rom)
+    Config.set_conf(["general", "last_rom_picked"], str(rom))
+    cmd = f"'{ra_path}' -L '{core}' '{rom}'"
+
+    os.system(cmd)
