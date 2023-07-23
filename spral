@@ -5,49 +5,23 @@
 import argparse
 import json
 import os
+import platform
 from pathlib import Path
 from tkinter import Tk
-from tkinter.filedialog import FileDialog
-from typing import Any, Callable, Dict, Iterable, Optional
+from tkinter.filedialog import LoadFileDialog
+from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
-
-class FileOrDirDialog(FileDialog):
-    def __init__(self, *args, obj_type: str = "f", **kwargs):
-        super().__init__(*args, **kwargs)
-        assert obj_type in ("f", "d")
-        self.obj_type = obj_type
-
-    def ok_command(self):
-        file = self.get_selection()
-        if self.obj_type == "f":
-            if os.path.isfile(file):
-                self.quit(file)
-                return
-            else:
-                self.master.bell()
-                return
-
-        # self.obj_type == "d"
-        if os.path.isfile(file):
-            file = os.path.dirname(file)
-        if os.path.isdir(file):
-            self.quit(file)
-            return
-        self.master.bell()
-
-    def files_double_event(self, event):
-        if self.obj_type == "f":
-            self.ok_command()
+HOME = Path.home()
+STR_HOME = str(HOME)
 
 
 def gui_ask_path(
         title: str,
-        obj_type: str = "f",
-        initialdir: str = "/",  # TODO MS Windows?
+        initialdir: str = STR_HOME,
         ) -> Path:
     root = Tk()
     root.withdraw()
-    lfd = FileOrDirDialog(root, obj_type=obj_type, title=title)
+    lfd = LoadFileDialog(root, title=title)
     fname = lfd.go(dir_or_file=initialdir)
     root.destroy()
     root.update_idletasks()
@@ -55,13 +29,39 @@ def gui_ask_path(
 
 
 class Config:
-    PATH = Path.home() / ".spral.json"
+    PATH = HOME / ".spral.json"
+
+    @staticmethod
+    def _find_longest_existing_prefix(p: Path):
+        while not p.is_dir():
+            p_parent = p.parent
+            if p == p_parent:
+                return p
+            p = p_parent
+        return p
 
     @classmethod
     def _init_config_if_not_exists(cls):
         if cls.PATH.exists():
             return
-        cls.PATH.write_text(json.dumps({}))
+        root = Path(HOME.anchor)
+        if platform.system() == "Darwin":
+            seed = dict(
+                general=dict(
+                    ra_path=str(root / "Applications" / "RetroArch.app" / "Contents" / "MacOS" / "RetroArch"),
+                    last_core_picked=str(HOME / "Library" / "Application Support" / "RetroArch" / "cores"),
+                    last_rom_picked=str(HOME),
+                )
+            )
+        else:
+            seed = dict(
+                general=dict(
+                    ra_path=str(root),
+                    last_core_picked=str(HOME),
+                    last_rom_picked=str(HOME),
+                )
+            )
+        cls.PATH.write_text(json.dumps(seed))
     
     @classmethod
     def get_conf(cls, key: [Iterable[str]]) -> str:
@@ -92,42 +92,47 @@ class Config:
         cls,
         key: Iterable[str],
         title: str,
-        obj_type: str = "f",
-        initialdir: str = "/",
-        ) -> Path:
+        initialdir: str = STR_HOME,
+        force_parent = False,
+        ) -> Tuple[Path, bool]:
+        """
+        Return value is (path, had_to_prompt)
+        """
         try:
-            return Path(cls.get_conf(key))
+            p = Path(cls.get_conf(key))
+            if (not force_parent) and p.is_file():
+                return p, False
+            initialdir = cls._find_longest_existing_prefix(p)
         except KeyError:
-            p = gui_ask_path(
-                title,
-                obj_type=obj_type,
-                initialdir=initialdir,
-                )
-            cls.set_conf(key, str(p))
-            return p
+            initialdir = cls._find_longest_existing_prefix(Path(initialdir))
+        p = gui_ask_path(
+            title,
+            initialdir=initialdir,
+            )
+        cls.set_conf(key, str(p))
+        return p, True
 
 
 def pick_core(force: bool, rom: Path) -> Path:
-    core_path = Config.prompt_if_not_exists(
-        ["general", "core_path"],
-        title="Path to Cores",
-        obj_type="d",
+    core, had_to_prompt = Config.prompt_if_not_exists(
+            ["general", "last_core_picked"],
+            title="Path to core",
+            )
+    str_rom_parent = str(rom.parent)
+    if had_to_prompt:
+        Config.set_conf(["default_cores", str_rom_parent], str(core))
+        return core    
+    core, _ = Config.prompt_if_not_exists(
+        ["default_cores", str_rom_parent],
+        "Path to core",
+        initialdir=core,
+        force_parent=force,
         )
-    if force:
-        core = gui_ask_path(title="core", initialdir=core_path)
-    else:
-        core = Path(
-                Config.prompt_if_not_exists(
-                    ["default_cores", str(rom.parent)],
-                    title="core",
-                    initialdir=core_path,
-                    )
-                )
-    return Path(core)
+    return core
 
 
 if __name__ == '__main__':
-    ra_path = Config.prompt_if_not_exists(
+    ra_path, _ = Config.prompt_if_not_exists(
         ["general", "ra_path"],
         title="Path to RetroArch Executable",
         )
@@ -139,19 +144,13 @@ if __name__ == '__main__':
     rom = args.ROM
 
     if rom is None:
-        initialdir = "/"
-        try:
-            last_rom = Config.get_conf(["general", "last_rom_picked"])
-            initialdir = Path(last_rom).parent
-        except KeyError:
-            pass
-        rom = gui_ask_path(
-            title="rom",
-            initialdir=initialdir,
+        rom, _ = Config.prompt_if_not_exists(
+            ["general", "last_rom_picked"],
+            title="ROM",
+            force_parent=True,
             )
 
     core = pick_core(force_pick_core, rom)
-    Config.set_conf(["general", "last_rom_picked"], str(rom))
     cmd = f"'{ra_path}' -L '{core}' '{rom}'"
 
     os.system(cmd)
