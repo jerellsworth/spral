@@ -11,6 +11,9 @@ from tkinter import Tk
 from tkinter.filedialog import LoadFileDialog
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 600
+
 HOME = Path.home()
 STR_HOME = str(HOME)
 
@@ -22,6 +25,8 @@ def gui_ask_path(
     root = Tk()
     root.withdraw()
     lfd = LoadFileDialog(root, title=title)
+    lfd.top.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+    lfd.top.resizable(True, True)
     fname = lfd.go(dir_or_file=initialdir)
     root.destroy()
     root.update_idletasks()
