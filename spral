@@ -20,9 +20,9 @@ STR_HOME = str(HOME)
 
 
 def gui_ask_path(
-        title: str,
-        initialdir: str = STR_HOME,
-        ) -> Optional[Path]:
+    title: str,
+    initialdir: str = STR_HOME,
+) -> Path:
     root = Tk()
     root.withdraw()
     lfd = LoadFileDialog(root, title=title)
@@ -61,8 +61,17 @@ class Config:
         if platform.system() == "Darwin":
             self.cfg = dict(
                 general=dict(
-                    ra_path=str(ROOT / "Applications" / "RetroArch.app" / "Contents" / "MacOS" / "RetroArch"),
-                    last_core_picked=str(HOME / "Library" / "Application Support" / "RetroArch" / "cores"),
+                    ra_path=str(
+                        ROOT
+                        / "Applications"
+                        / "RetroArch.app"
+                        / "Contents"
+                        / "MacOS"
+                        / "RetroArch"
+                    ),
+                    last_core_picked=str(
+                        HOME / "Library" / "Application Support" / "RetroArch" / "cores"
+                    ),
                     last_rom_picked=str(HOME),
                 ),
                 matches={},
@@ -74,7 +83,7 @@ class Config:
                     last_core_picked=str(HOME),
                     last_rom_picked=str(HOME),
                 ),
-                matches={}
+                matches={},
             )
         self._save()
 
@@ -83,10 +92,10 @@ class Config:
         key: str,
         prompt_title: str,
         force: bool = False,
-        ) -> Path:
-        fpath = Path(self.cfg["general"].get(key))
+    ) -> Optional[Path]:
+        fpath: Optional[Path] = Path(self.cfg["general"].get(key))
         if fpath is None:
-            start_dir = cls._find_longest_existing_prefix(Path(STR_HOME))
+            start_dir = self._find_longest_existing_prefix(Path(STR_HOME))
         elif fpath.is_file() and (not force):
             return fpath
         else:
@@ -94,18 +103,14 @@ class Config:
         fpath = gui_ask_path(
             prompt_title,
             initialdir=start_dir,
-            )
+        )
         if fpath is None:
             return None
         self.cfg["general"][key] = str(fpath)
         self._save()
         return fpath
 
-    def set_file_from_cfg(
-        self,
-        key: str,
-        file: Path
-        ) -> Path:
+    def set_file_from_cfg(self, key: str, file: Path) -> None:
         self.cfg["general"][key] = str(file)
         self._save()
 
@@ -125,13 +130,16 @@ class App:
     def __init__(self, cfg_path: Optional[Path] = None):
         self.path = cfg_path or (HOME / ".spral.json")
         self.cfg = Config(cfg_path)
-        
+
     def run(self, rom: Optional[Path], force_pick_core: bool = False):
         if rom is None:
-            initialdir = self.cfg.get_file_from_cfg(
-                "last_rom_picked",
-                "Path to Rom",
-                ).parent
+            initialdir = (
+                self.cfg.get_file_from_cfg(
+                    "last_rom_picked",
+                    "Path to Rom",
+                )
+                or HOME
+            ).parent
             rom = gui_ask_path("Path to Rom", str(initialdir))
         elif not rom.is_file():
             rom = gui_ask_path("Path to Rom", str(rom))
@@ -142,15 +150,18 @@ class App:
         else:
             core_path = self.cfg.get_match(core_search_key)
         if core_path is None:
-            initialdir = self.cfg.get_file_from_cfg(
-                "last_core_picked",
-                "Path to Core",
-                ).parent
+            initialdir = (
+                self.cfg.get_file_from_cfg(
+                    "last_core_picked",
+                    "Path to Core",
+                )
+                or HOME
+            ).parent
             core_path = gui_ask_path("Path to Core", str(initialdir))
         ra_path = self.cfg.get_file_from_cfg(
             "ra_path",
             "Path to RetroArch executable",
-            )
+        )
         self.cfg.set_match(core_search_key, core_path)
         self.cfg.set_file_from_cfg("last_rom_picked", rom)
         self.cfg.set_file_from_cfg("last_core_picked", core_path)
@@ -158,9 +169,13 @@ class App:
         os.system(cmd)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch RetroArch")
-    parser.add_argument("-c", help="Force choice of core", action="store_true")
+    parser.add_argument(
+        "-c",
+        help="Force choice of core",
+        action="store_true",
+    )
     parser.add_argument("ROM", nargs="?", default=None, type=Path)
     args = parser.parse_args()
     force_pick_core = args.c
