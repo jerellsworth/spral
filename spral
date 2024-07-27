@@ -87,12 +87,12 @@ class Config:
         fpath = Path(self.cfg["general"].get(key))
         if fpath is None:
             start_dir = cls._find_longest_existing_prefix(Path(STR_HOME))
-        else if fpath.exists() and (not force):
+        elif fpath.is_file() and (not force):
             return fpath
         else:
-            start_dir = cls._find_longest_existing_prefix(fpath)
+            start_dir = self._find_longest_existing_prefix(fpath)
         fpath = gui_ask_path(
-            title,
+            prompt_title,
             initialdir=start_dir,
             )
         if fpath is None:
@@ -128,50 +128,42 @@ class App:
         
     def run(self, rom: Optional[Path], force_pick_core: bool = False):
         if rom is None:
-            rom = self.cfg.get_file_from_cfg(
-                "Path to Rom",
+            initialdir = self.cfg.get_file_from_cfg(
                 "last_rom_picked",
-                )
-        if not rom.is_file():
-            rom = gui_ask_path("Pick Rom", str(rom))
+                "Path to Rom",
+                ).parent
+            rom = gui_ask_path("Path to Rom", str(initialdir))
+        elif not rom.is_file():
+            rom = gui_ask_path("Path to Rom", str(rom))
         rom_dir = rom.parent
-        core_search_key = (rom.parent, rom.split(".")[-1].upper())
+        core_search_key = f"{rom.parent}:{rom.suffix.upper()}"
         if force_pick_core:
             core_path = None
         else:
             core_path = self.cfg.get_match(core_search_key)
         if core_path is None:
-            core_path = self.cfg.get_file_from_cfg(
-                "Path to Core",
+            initialdir = self.cfg.get_file_from_cfg(
                 "last_core_picked",
-                )
+                "Path to Core",
+                ).parent
+            core_path = gui_ask_path("Path to Core", str(initialdir))
         ra_path = self.cfg.get_file_from_cfg(
             "ra_path",
             "Path to RetroArch executable",
             )
         self.cfg.set_match(core_search_key, core_path)
         self.cfg.set_file_from_cfg("last_rom_picked", rom)
-        self.cfg.set_file_from_cfg("last_core_picked", core)
-        cmd = f"'{ra_path}' -L '{core}' '{rom}'"
+        self.cfg.set_file_from_cfg("last_core_picked", core_path)
+        cmd = f"'{ra_path}' -L '{core_path}' '{rom}'"
         os.system(cmd)
 
+
 if __name__ == '__main__':
-    ra_path, _ = Config.prompt_if_not_exists(
-        ["general", "ra_path"],
-        title="Path to RetroArch Executable",
-        )
     parser = argparse.ArgumentParser(description="Launch RetroArch")
     parser.add_argument("-c", help="Force choice of core", action="store_true")
     parser.add_argument("ROM", nargs="?", default=None, type=Path)
     args = parser.parse_args()
     force_pick_core = args.c
     rom = args.ROM
-
-    if rom is None:
-        rom, _ = Config.prompt_if_not_exists(
-            ["general", "last_rom_picked"],
-            title="ROM",
-            force_parent=True,
-            )
-
-    core = pick_core(force_pick_core, rom)
+    app = App()
+    app.run(rom)
