@@ -166,4 +166,4 @@ if __name__ == '__main__':
     force_pick_core = args.c
     rom = args.ROM
     app = App()
-    app.run(rom)
+    app.run(rom, force_pick_core)
