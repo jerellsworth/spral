@@ -6,9 +6,9 @@ import argparse
 import json
 import os
 import platform
+from dataclasses import dataclass
 from pathlib import Path
-from tkinter import Tk
-from tkinter.filedialog import LoadFileDialog
+from tkinter import filedialog, LEFT, RIGHT, StringVar, Tk, ttk
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 WINDOW_WIDTH = 800
@@ -19,33 +19,42 @@ ROOT = Path(HOME.anchor)
 STR_HOME = str(HOME)
 
 
-def gui_ask_path(
-    title: str,
-    initialdir: str = STR_HOME,
-) -> Path:
-    root = Tk()
-    root.withdraw()
-    lfd = LoadFileDialog(root, title=title)
-    lfd.top.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
-    lfd.top.resizable(True, True)
-    fname = lfd.go(dir_or_file=initialdir)
-    root.destroy()
-    root.update_idletasks()
-    if fname is None:
-        exit()
-    return Path(fname)
+def find_longest_existing_prefix(p: Optional[str]) -> str:
+    if p is None:
+        return HOME
+    p = Path(p)
+    while not p.is_dir():
+        p_parent = p.parent
+        if p == p_parent:
+            return p
+        p = p_parent
+    return p
 
+
+@dataclass
+class Params:
+    ra_path: Optional[Path]
+    core_path: Optional[Path]
+    rom_path: Optional[Path]
+
+    def verify(self) -> bool:
+        return (
+            self.ra_path is not None
+            and self.ra_path.is_file()
+            and self.core_path is not None
+            and self.core_path.is_file()
+            and self.rom_path is not None
+            and self.rom_path.is_file()
+            )
 
 class Config:
 
+
     @staticmethod
-    def _find_longest_existing_prefix(p: Path):
-        while not p.is_dir():
-            p_parent = p.parent
-            if p == p_parent:
-                return p
-            p = p_parent
-        return p
+    def _match_key(p: Path, file_ext: str) -> str:
+        if p.is_file():
+            p = p.parent
+        return f"{p}:{file_ext.lstrip('.').upper()}"
 
     def __init__(self, path: Optional[Path] = None):
         self.path = path or (HOME / ".spral.json")
@@ -87,98 +96,256 @@ class Config:
             )
         self._save()
 
-    def get_file_from_cfg(
+    def get_ra_path(self) -> Path:
+        return Path(self.cfg["general"]["ra_path"])
+
+    def set_ra_path(self, p: Path) -> None:
+        self.cfg["general"]["ra_path"] = str(p)
+        self._save()
+
+    def get_last_core_picked(self) -> Path:
+        return Path(self.cfg["general"]["last_core_picked"])
+
+    def set_last_core_picked(self, p: Path) -> None:
+        self.cfg["general"]["last_core_picked"] = str(p)
+        self._save()
+
+    def get_last_rom_picked(self) -> Path:
+        return Path(self.cfg["general"]["last_rom_picked"])
+        
+    def set_last_rom_picked(self, p: Path) -> None:
+        self.cfg["general"]["last_rom_picked"] = str(p)
+        self._save()
+
+    def get_best_core(self, p: Path, file_ext: str) -> Optional[Path]:
+        core = self.cfg["matches"].get(self._match_key(p, file_ext))
+        if core is None:
+            return None
+        return Path(core)
+
+    def set_best_core(self, p: Path, file_ext: str, core: Path) -> None:
+        self.cfg["matches"][self._match_key(p, file_ext)] = str(core)
+        self._save()
+
+    def update_from_params(self, params: Params):
+        if not params.verify():
+            return
+        self.set_ra_path(params.ra_path)
+        self.set_last_core_picked(params.core_path)
+        self.set_last_rom_picked(params.rom_path)
+        self.set_best_core(params.rom_path, params.rom_path.suffix, params.core_path)
+        self._save()
+
+
+class App(Tk):
+
+    def _validate(self):
+        valid = True
+        if Path(self.var_ra_path.get()).is_file():
+            self.lbl_ra_path_valid["text"] = "✅"
+        else:
+            self.lbl_ra_path_valid["text"] = "❌"
+            valid = False
+        if Path(self.var_core_path.get()).is_file():
+            self.lbl_core_path_valid["text"] = "✅"
+        else:
+            self.lbl_core_path_valid["text"] = "❌"
+            valid = False
+        if Path(self.var_rom_path.get()).is_file():
+            self.lbl_rom_path_valid["text"] = "✅"
+        else:
+            self.lbl_rom_path_valid["text"] = "❌"
+            valid = False
+        if valid:
+            self.btn_run["state"] = "normal"
+        else:
+            self.btn_run["state"] = "disable"
+
+    def _set_ra_path(self, *args):
+        params.ra_path = Path(self.var_ra_path.get())
+        self._validate()
+
+    def _set_ra_path_filepicker(self):
+        self.var_ra_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Retroarch",
+                initialdir=find_longest_existing_prefix(self.var_ra_path.get()),
+                )
+            )
+
+    def _set_core_path(self, *args):
+        params.core_path = Path(self.var_core_path.get())
+        self._validate()
+
+    def _set_core_path_filepicker(self):
+        self.var_core_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Core",
+                initialdir=find_longest_existing_prefix(self.var_core_path.get()),
+                )
+            )
+
+    def _set_rom_path(self, *args):
+        params.rom_path = Path(self.var_rom_path.get())
+        self._validate()
+
+    def _set_rom_path_filepicker(self):
+        self.var_rom_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Rom",
+                initialdir=find_longest_existing_prefix(self.var_rom_path.get()),
+                )
+            )
+
+    def _run(self):
+        self.cancelled = False
+        self.destroy()
+
+    def _cancel(self):
+        self.cancelled = True
+        self.destroy()
+
+    def __init__(
         self,
-        key: str,
-        prompt_title: str,
-        force: bool = False,
-    ) -> Optional[Path]:
-        fpath: Optional[Path] = Path(self.cfg["general"].get(key))
-        if fpath is None:
-            start_dir = self._find_longest_existing_prefix(Path(STR_HOME))
-        elif fpath.is_file() and (not force):
-            return fpath
-        else:
-            start_dir = self._find_longest_existing_prefix(fpath)
-        fpath = gui_ask_path(
-            prompt_title,
-            initialdir=start_dir,
+        params: Params, 
+        cfg: Config,
+        ):
+
+        super().__init__()
+        self.cancelled = False
+        self.params = params
+        self.cfg = cfg
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        self.var_ra_path = StringVar(value=str(params.ra_path))
+        self.var_ra_path.trace_add('write', self._set_ra_path)
+        self.var_core_path = StringVar(value=str(params.core_path))
+        self.var_core_path.trace_add('write', self._set_core_path)
+        self.var_rom_path = StringVar(value=str(params.rom_path))
+        self.var_rom_path.trace_add('write', self._set_rom_path)
+            
+        self.title = "Spral: Retroarch Launcher"
+
+        frm_ra = ttk.Frame(self)
+        ttk.Label(frm_ra, text="Retroarch Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_ra,
+            textvariable=self.var_ra_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_ra,
+            text="📁",
+            command=self._set_ra_path_filepicker,
+            ).pack(side=LEFT)
+        self.lbl_ra_path_valid = ttk.Label(
+            frm_ra,
+            text="✅"
         )
-        if fpath is None:
-            return None
-        self.cfg["general"][key] = str(fpath)
-        self._save()
-        return fpath
+        self.lbl_ra_path_valid.pack(side=LEFT)
+        frm_ra.pack(fill='x')
 
-    def set_file_from_cfg(self, key: str, file: Path) -> None:
-        self.cfg["general"][key] = str(file)
-        self._save()
-
-    def get_match(self, key: Any) -> Optional[Path]:
-        # key is expected to be (directory, extension)
-        p = self.cfg["matches"].get(key)
-        if p is None:
-            return None
-        return Path(p)
-
-    def set_match(self, key: Any, value: Path):
-        self.cfg["matches"][key] = str(value)
-        self._save()
-
-
-class App:
-    def __init__(self, cfg_path: Optional[Path] = None):
-        self.path = cfg_path or (HOME / ".spral.json")
-        self.cfg = Config(cfg_path)
-
-    def run(self, rom: Optional[Path], force_pick_core: bool = False):
-        if rom is None:
-            initialdir = (
-                self.cfg.get_file_from_cfg(
-                    "last_rom_picked",
-                    "Path to Rom",
-                )
-                or HOME
-            ).parent
-            rom = gui_ask_path("Path to Rom", str(initialdir))
-        elif not rom.is_file():
-            rom = gui_ask_path("Path to Rom", str(rom))
-        rom_dir = rom.parent
-        core_search_key = f"{rom.parent}:{rom.suffix.upper()}"
-        if force_pick_core:
-            core_path = None
-        else:
-            core_path = self.cfg.get_match(core_search_key)
-        if core_path is None:
-            initialdir = (
-                self.cfg.get_file_from_cfg(
-                    "last_core_picked",
-                    "Path to Core",
-                )
-                or HOME
-            ).parent
-            core_path = gui_ask_path("Path to Core", str(initialdir))
-        ra_path = self.cfg.get_file_from_cfg(
-            "ra_path",
-            "Path to RetroArch executable",
+        frm_core = ttk.Frame(self)
+        ttk.Label(frm_core, text="Core Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_core,
+            textvariable=self.var_core_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_core,
+            text="📁",
+            command=self._set_core_path_filepicker,
+            ).pack(side=LEFT)
+        self.lbl_core_path_valid = ttk.Label(
+            frm_core,
+            text="✅"
         )
-        self.cfg.set_match(core_search_key, core_path)
-        self.cfg.set_file_from_cfg("last_rom_picked", rom)
-        self.cfg.set_file_from_cfg("last_core_picked", core_path)
-        cmd = f"'{ra_path}' -L '{core_path}' '{rom}'"
-        os.system(cmd)
+        self.lbl_core_path_valid.pack(side=LEFT)
+        frm_core.pack(fill='x')
+
+        frm_rom = ttk.Frame(self)
+        ttk.Label(frm_rom, text="Core Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_rom,
+            textvariable=self.var_rom_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_rom,
+            text="📁",
+            command=self._set_rom_path_filepicker,
+            ).pack(side=LEFT)
+        self.lbl_rom_path_valid = ttk.Label(
+            frm_rom,
+            text="✅"
+        )
+        self.lbl_rom_path_valid.pack(side=LEFT)
+        frm_rom.pack(fill='x')
+
+        frm_buttons = ttk.Frame(self)
+        self.btn_run = ttk.Button(
+            frm_buttons,
+            text="Run",
+            command=self._run,
+            )
+        self.btn_run.pack(side=RIGHT)
+        ttk.Button(
+            frm_buttons,
+            text="Cancel",
+            command=self._cancel,
+            ).pack(side=RIGHT)
+        frm_buttons.pack()
+        self._validate()
+
+
+def get_params(rom_path: Optional[Path], cfg: Config) -> Params:
+    ra_path = cfg.get_ra_path()
+    if rom_path is None:
+        core_path = None
+    else:
+        core_path = cfg.get_best_core(rom, rom.suffix)
+    return Params(
+        ra_path=ra_path,
+        core_path=core_path,
+        rom_path=rom_path
+        )
+
+
+def run(params: Params):
+    assert params.verify(), f"Run parameters could not be verified: {params}"
+    cmd = f"'{params.ra_path}' -L '{params.core_path}' '{params.rom_path}'"
+    os.system(cmd)
+
+
+def gui(params: Params, cfg: Config):
+    app = App(params, cfg)
+    app.mainloop()
+    return app.cancelled, params
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch RetroArch")
     parser.add_argument(
-        "-c",
-        help="Force choice of core",
+        "-g",
+        help="Force gui",
         action="store_true",
     )
     parser.add_argument("ROM", nargs="?", default=None, type=Path)
     args = parser.parse_args()
-    force_pick_core = args.c
+    force_gui = args.g
     rom = args.ROM
-    app = App()
-    app.run(rom, force_pick_core)
+
+    cfg = Config()
+
+    params = get_params(rom, cfg)
+    if (force_gui or (not params.verify())):
+        if params.core_path is None:
+            params.core_path = cfg.get_last_core_picked()
+        if params.rom_path is None:
+            params.rom_path = cfg.get_last_rom_picked()
+        cancelled, params = gui(params, cfg)
+        if cancelled:
+            exit(1)
+        cfg.update_from_params(params)
+    run(params)
