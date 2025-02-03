@@ -218,6 +218,7 @@ class App(Tk):
         self.cancelled = False
         self.params = params
         self.cfg = cfg
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self.var_ra_path = StringVar(value=str(params.ra_path))
         self.var_ra_path.trace_add('write', self._set_ra_path)
