@@ -340,10 +340,15 @@ if __name__ == "__main__":
 
     params = get_params(rom, cfg)
     if (force_gui or (not params.verify())):
-        if params.core_path is None:
+        if params.core_path is None and params.rom_path is None:
+            # no rom specified, try last rom played
             params.core_path = cfg.get_last_core_picked()
-        if params.rom_path is None:
             params.rom_path = cfg.get_last_rom_picked()
+        elif params.core_path is None:
+            # make sure core is invalid so we don't stupidly pick the wrong core for a new directory
+            params.core_path = cfg.get_last_core_picked().parent
+            if params.rom_path is None:
+                params.rom_path = cfg.get_last_rom_picked()
         cancelled, params = gui(params, cfg)
         if cancelled:
             exit(1)
