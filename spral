@@ -128,20 +128,42 @@ class Config:
         self._save()
 
     def update_from_params(self, params: Params):
-        if not params.validate():
+        if not params.verify():
             return
         self.set_ra_path(params.ra_path)
         self.set_last_core_picked(params.core_path)
         self.set_last_rom_picked(params.rom_path)
-        self.set_best_core(params.rom_path, params.rom_path.suffix, params.corer_path)
+        self.set_best_core(params.rom_path, params.rom_path.suffix, params.core_path)
         self._save()
 
 
 class App(Tk):
 
+    def _validate(self):
+        valid = True
+        if Path(self.var_ra_path.get()).is_file():
+            self.lbl_ra_path_valid["text"] = "✅"
+        else:
+            self.lbl_ra_path_valid["text"] = "❌"
+            valid = False
+        if Path(self.var_core_path.get()).is_file():
+            self.lbl_core_path_valid["text"] = "✅"
+        else:
+            self.lbl_core_path_valid["text"] = "❌"
+            valid = False
+        if Path(self.var_rom_path.get()).is_file():
+            self.lbl_rom_path_valid["text"] = "✅"
+        else:
+            self.lbl_rom_path_valid["text"] = "❌"
+            valid = False
+        if valid:
+            self.btn_run["state"] = "normal"
+        else:
+            self.btn_run["state"] = "disable"
+
     def _set_ra_path(self, *args):
-        params.ra_path = self.var_ra_path.get()
-        # TODO validate
+        params.ra_path = Path(self.var_ra_path.get())
+        self._validate()
 
     def _set_ra_path_filepicker(self):
         self.var_ra_path.set(
@@ -153,8 +175,8 @@ class App(Tk):
             )
 
     def _set_core_path(self, *args):
-        params.core_path = self.var_core_path.get()
-        # TODO validate
+        params.core_path = Path(self.var_core_path.get())
+        self._validate()
 
     def _set_core_path_filepicker(self):
         self.var_core_path.set(
@@ -166,8 +188,8 @@ class App(Tk):
             )
 
     def _set_rom_path(self, *args):
-        params.rom_path = self.var_rom_path.get()
-        # TODO validate
+        params.rom_path = Path(self.var_rom_path.get())
+        self._validate()
 
     def _set_rom_path_filepicker(self):
         self.var_rom_path.set(
@@ -217,6 +239,11 @@ class App(Tk):
             text="📁",
             command=self._set_ra_path_filepicker,
             ).pack(side=LEFT)
+        self.lbl_ra_path_valid = ttk.Label(
+            frm_ra,
+            text="✅"
+        )
+        self.lbl_ra_path_valid.pack(side=LEFT)
         frm_ra.pack(fill='x')
 
         frm_core = ttk.Frame(self)
@@ -230,6 +257,11 @@ class App(Tk):
             text="📁",
             command=self._set_core_path_filepicker,
             ).pack(side=LEFT)
+        self.lbl_core_path_valid = ttk.Label(
+            frm_core,
+            text="✅"
+        )
+        self.lbl_core_path_valid.pack(side=LEFT)
         frm_core.pack(fill='x')
 
         frm_rom = ttk.Frame(self)
@@ -243,20 +275,27 @@ class App(Tk):
             text="📁",
             command=self._set_rom_path_filepicker,
             ).pack(side=LEFT)
+        self.lbl_rom_path_valid = ttk.Label(
+            frm_rom,
+            text="✅"
+        )
+        self.lbl_rom_path_valid.pack(side=LEFT)
         frm_rom.pack(fill='x')
 
         frm_buttons = ttk.Frame(self)
-        ttk.Button(
+        self.btn_run = ttk.Button(
             frm_buttons,
             text="Run",
             command=self._run,
-            ).pack(side=RIGHT)
+            )
+        self.btn_run.pack(side=RIGHT)
         ttk.Button(
             frm_buttons,
             text="Cancel",
             command=self._cancel,
             ).pack(side=RIGHT)
         frm_buttons.pack()
+        self._validate()
 
 
 def get_params(rom_path: Optional[Path], cfg: Config) -> Params:
@@ -274,7 +313,7 @@ def get_params(rom_path: Optional[Path], cfg: Config) -> Params:
 
 def run(params: Params):
     assert params.verify(), f"Run parameters could not be verified: {params}"
-    cmd = f"'{parrams.ra_path}' -L '{params.core_path}' '{params.rom_path}'"
+    cmd = f"'{params.ra_path}' -L '{params.core_path}' '{params.rom_path}'"
     os.system(cmd)
 
 
