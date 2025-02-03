@@ -8,7 +8,7 @@ import os
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import Tk
+from tkinter import Tk, ttk
 from tkinter.filedialog import LoadFileDialog
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
@@ -51,7 +51,7 @@ class Config:
     def _match_key(p: Path, file_ext: str) -> str:
         if p.is_file():
             p = p.parent
-        return f"{p}:{file_ext.upper()}"
+        return f"{p}:{file_ext.lstrip('.').upper()}"
 
     def __init__(self, path: Optional[Path] = None):
         self.path = path or (HOME / ".spral.json")
@@ -122,16 +122,47 @@ class Config:
 
     def set_best_core(self, p: Path, file_ext: str, core: Path) -> None:
         self.cfg["matches"][self._match_key(p, file_ext)] = str(core)
+        self._save()
+
+    def update_from_params(self, params: Params):
+        if not params.validate():
+            return
+        self.set_ra_path(params.ra_path)
+        self.set_last_core_picked(params.core_path)
+        self.set_last_rom_picked(params.rom_path)
+        self.set_best_core(params.rom_path, params.rom_path.suffix, params.corer_path)
+        self._save()
 
 
-def get_params(p: Params):
-    pass
+
+
+
+def get_params(rom_path: Optional[Path], cfg: Config) -> Params:
+    ra_path = cfg.get_ra_path()
+    if rom_path is None:
+        core_path = None
+    else:
+        core_path = cfg.get_best_core(rom, rom.suffix)
+    return Params(
+        ra_path=ra_path,
+        core_path=core_path,
+        rom_path=rom_path
+        )
 
 
 def run(params: Params):
     assert params.verify(), f"Run parameters could not be verified: {params}"
     cmd = f"'{parrams.ra_path}' -L '{params.core_path}' '{params.rom_path}'"
     os.system(cmd)
+
+
+def gui(params: Params, cfg: Config):
+    root = Tk()
+    frm = ttk.Frame(root, padding=10)
+    frm.grid()
+    ttk.Label(frm, text="Hello World!").grid(column=0, row=0)
+    ttk.Button(frm, text="Quit", command=root.destroy).grid(column=1, row=0)
+    root.mainloop()
 
 
 if __name__ == "__main__":
@@ -145,7 +176,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     force_gui = args.g
     rom = args.ROM
-    params = get_params(rom)
+
+    cfg = Config()
+
+    params = get_params(rom, cfg)
     if (force_gui or (not params.verify())):
-        params = App().run(params)
+        params = gui(params, cfg)
+        cfg.update_from_params(params)
     run(params)
