@@ -266,7 +266,7 @@ class App(Tk):
         frm_core.pack(fill='x')
 
         frm_rom = ttk.Frame(self)
-        ttk.Label(frm_rom, text="Core Path").pack(side=LEFT)
+        ttk.Label(frm_rom, text="Rom Path").pack(side=LEFT)
         ttk.Entry(
             frm_rom,
             textvariable=self.var_rom_path,
