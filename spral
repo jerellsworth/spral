@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import platform
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import Tk
 from tkinter.filedialog import LoadFileDialog
@@ -19,22 +20,21 @@ ROOT = Path(HOME.anchor)
 STR_HOME = str(HOME)
 
 
-def gui_ask_path(
-    title: str,
-    initialdir: str = STR_HOME,
-) -> Path:
-    root = Tk()
-    root.withdraw()
-    lfd = LoadFileDialog(root, title=title)
-    lfd.top.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
-    lfd.top.resizable(True, True)
-    fname = lfd.go(dir_or_file=initialdir)
-    root.destroy()
-    root.update_idletasks()
-    if fname is None:
-        exit()
-    return Path(fname)
+@dataclass
+class Params:
+    ra_path: Optional[Path]
+    core_path: Optional[Path]
+    rom_path: Optional[Path]
 
+    def verify(self) -> bool:
+        return (
+            self.ra_path is not None
+            and self.ra_path.is_file()
+            and self.core_path is not None
+            and self.core_path.is_file()
+            and self.rom_path is not None
+            and self.rom_path.is_file()
+            )
 
 class Config:
 
@@ -46,6 +46,12 @@ class Config:
                 return p
             p = p_parent
         return p
+
+    @staticmethod
+    def _match_key(p: Path, file_ext: str) -> str:
+        if p.is_file():
+            p = p.parent
+        return f"{p}:{file_ext.upper()}"
 
     def __init__(self, path: Optional[Path] = None):
         self.path = path or (HOME / ".spral.json")
@@ -87,98 +93,59 @@ class Config:
             )
         self._save()
 
-    def get_file_from_cfg(
-        self,
-        key: str,
-        prompt_title: str,
-        force: bool = False,
-    ) -> Optional[Path]:
-        fpath: Optional[Path] = Path(self.cfg["general"].get(key))
-        if fpath is None:
-            start_dir = self._find_longest_existing_prefix(Path(STR_HOME))
-        elif fpath.is_file() and (not force):
-            return fpath
-        else:
-            start_dir = self._find_longest_existing_prefix(fpath)
-        fpath = gui_ask_path(
-            prompt_title,
-            initialdir=start_dir,
-        )
-        if fpath is None:
+    def get_ra_path(self) -> Path:
+        return Path(self.cfg["general"]["ra_path"])
+
+    def set_ra_path(self, p: Path) -> None:
+        self.cfg["general"]["ra_path"] = str(p)
+        self._save()
+
+    def get_last_core_picked(self) -> Path:
+        return Path(self.cfg["general"]["last_core_picked"])
+
+    def set_last_core_picked(self, p: Path) -> None:
+        self.cfg["general"]["last_core_picked"] = str(p)
+        self._save()
+
+    def get_last_rom_picked(self) -> Path:
+        return Path(self.cfg["general"]["last_rom_picked"])
+        
+    def set_last_rom_picked(self, p: Path) -> None:
+        self.cfg["general"]["last_rom_picked"] = str(p)
+        self._save()
+
+    def get_best_core(self, p: Path, file_ext: str) -> Optional[Path]:
+        core = self.cfg["matches"].get(self._match_key(p, file_ext))
+        if core is None:
             return None
-        self.cfg["general"][key] = str(fpath)
-        self._save()
-        return fpath
+        return Path(core)
 
-    def set_file_from_cfg(self, key: str, file: Path) -> None:
-        self.cfg["general"][key] = str(file)
-        self._save()
-
-    def get_match(self, key: Any) -> Optional[Path]:
-        # key is expected to be (directory, extension)
-        p = self.cfg["matches"].get(key)
-        if p is None:
-            return None
-        return Path(p)
-
-    def set_match(self, key: Any, value: Path):
-        self.cfg["matches"][key] = str(value)
-        self._save()
+    def set_best_core(self, p: Path, file_ext: str, core: Path) -> None:
+        self.cfg["matches"][self._match_key(p, file_ext)] = str(core)
 
 
-class App:
-    def __init__(self, cfg_path: Optional[Path] = None):
-        self.path = cfg_path or (HOME / ".spral.json")
-        self.cfg = Config(cfg_path)
+def get_params(p: Params):
+    pass
 
-    def run(self, rom: Optional[Path], force_pick_core: bool = False):
-        if rom is None:
-            initialdir = (
-                self.cfg.get_file_from_cfg(
-                    "last_rom_picked",
-                    "Path to Rom",
-                )
-                or HOME
-            ).parent
-            rom = gui_ask_path("Path to Rom", str(initialdir))
-        elif not rom.is_file():
-            rom = gui_ask_path("Path to Rom", str(rom))
-        rom_dir = rom.parent
-        core_search_key = f"{rom.parent}:{rom.suffix.upper()}"
-        if force_pick_core:
-            core_path = None
-        else:
-            core_path = self.cfg.get_match(core_search_key)
-        if core_path is None:
-            initialdir = (
-                self.cfg.get_file_from_cfg(
-                    "last_core_picked",
-                    "Path to Core",
-                )
-                or HOME
-            ).parent
-            core_path = gui_ask_path("Path to Core", str(initialdir))
-        ra_path = self.cfg.get_file_from_cfg(
-            "ra_path",
-            "Path to RetroArch executable",
-        )
-        self.cfg.set_match(core_search_key, core_path)
-        self.cfg.set_file_from_cfg("last_rom_picked", rom)
-        self.cfg.set_file_from_cfg("last_core_picked", core_path)
-        cmd = f"'{ra_path}' -L '{core_path}' '{rom}'"
-        os.system(cmd)
+
+def run(params: Params):
+    assert params.verify(), f"Run parameters could not be verified: {params}"
+    cmd = f"'{parrams.ra_path}' -L '{params.core_path}' '{params.rom_path}'"
+    os.system(cmd)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch RetroArch")
     parser.add_argument(
-        "-c",
-        help="Force choice of core",
+        "-g",
+        help="Force gui",
         action="store_true",
     )
     parser.add_argument("ROM", nargs="?", default=None, type=Path)
     args = parser.parse_args()
-    force_pick_core = args.c
+    force_gui = args.g
     rom = args.ROM
-    app = App()
-    app.run(rom, force_pick_core)
+    params = get_params(rom)
+    if (force_gui or (not params.verify())):
+        params = App().run(params)
+    run(params)
