@@ -188,7 +188,13 @@ class App(Tk):
             )
 
     def _set_rom_path(self, *args):
-        params.rom_path = Path(self.var_rom_path.get())
+        rom_path = Path(self.var_rom_path.get())
+        if rom_path.is_file():
+            # guess at best core if we change rom
+            core_guess = self.cfg.get_best_core(rom_path, rom_path.suffix)
+            if core_guess is not None:
+                self.var_core_path.set(str(core_guess))
+        params.rom_path = rom_path
         self._validate()
 
     def _set_rom_path_filepicker(self):
