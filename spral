@@ -8,8 +8,7 @@ import os
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import Tk, ttk
-from tkinter.filedialog import LoadFileDialog
+from tkinter import filedialog, LEFT, RIGHT, StringVar, Tk, ttk
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 WINDOW_WIDTH = 800
@@ -18,6 +17,18 @@ WINDOW_HEIGHT = 600
 HOME = Path.home()
 ROOT = Path(HOME.anchor)
 STR_HOME = str(HOME)
+
+
+def find_longest_existing_prefix(p: Optional[str]) -> str:
+    if p is None:
+        return HOME
+    p = Path(p)
+    while not p.is_dir():
+        p_parent = p.parent
+        if p == p_parent:
+            return p
+        p = p_parent
+    return p
 
 
 @dataclass
@@ -38,14 +49,6 @@ class Params:
 
 class Config:
 
-    @staticmethod
-    def _find_longest_existing_prefix(p: Path):
-        while not p.is_dir():
-            p_parent = p.parent
-            if p == p_parent:
-                return p
-            p = p_parent
-        return p
 
     @staticmethod
     def _match_key(p: Path, file_ext: str) -> str:
@@ -134,7 +137,126 @@ class Config:
         self._save()
 
 
+class App(Tk):
 
+    def _set_ra_path(self, *args):
+        params.ra_path = self.var_ra_path.get()
+        # TODO validate
+
+    def _set_ra_path_filepicker(self):
+        self.var_ra_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Retroarch",
+                initialdir=find_longest_existing_prefix(self.var_ra_path.get()),
+                )
+            )
+
+    def _set_core_path(self, *args):
+        params.core_path = self.var_core_path.get()
+        # TODO validate
+
+    def _set_core_path_filepicker(self):
+        self.var_core_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Core",
+                initialdir=find_longest_existing_prefix(self.var_core_path.get()),
+                )
+            )
+
+    def _set_rom_path(self, *args):
+        params.rom_path = self.var_rom_path.get()
+        # TODO validate
+
+    def _set_rom_path_filepicker(self):
+        self.var_rom_path.set(
+            filedialog.askopenfilename(
+                parent=self,
+                title="Path to Rom",
+                initialdir=find_longest_existing_prefix(self.var_rom_path.get()),
+                )
+            )
+
+    def _run(self):
+        self.cancelled = False
+        self.destroy()
+
+    def _cancel(self):
+        self.cancelled = True
+        self.destroy()
+
+    def __init__(
+        self,
+        params: Params, 
+        cfg: Config,
+        ):
+
+        super().__init__()
+        self.cancelled = False
+        self.params = params
+        self.cfg = cfg
+
+        self.var_ra_path = StringVar(value=str(params.ra_path))
+        self.var_ra_path.trace_add('write', self._set_ra_path)
+        self.var_core_path = StringVar(value=str(params.core_path))
+        self.var_core_path.trace_add('write', self._set_core_path)
+        self.var_rom_path = StringVar(value=str(params.rom_path))
+        self.var_rom_path.trace_add('write', self._set_rom_path)
+            
+        self.title = "Spral: Retroarch Launcher"
+
+        frm_ra = ttk.Frame(self)
+        ttk.Label(frm_ra, text="Retroarch Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_ra,
+            textvariable=self.var_ra_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_ra,
+            text="📁",
+            command=self._set_ra_path_filepicker,
+            ).pack(side=LEFT)
+        frm_ra.pack(fill='x')
+
+        frm_core = ttk.Frame(self)
+        ttk.Label(frm_core, text="Core Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_core,
+            textvariable=self.var_core_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_core,
+            text="📁",
+            command=self._set_core_path_filepicker,
+            ).pack(side=LEFT)
+        frm_core.pack(fill='x')
+
+        frm_rom = ttk.Frame(self)
+        ttk.Label(frm_rom, text="Core Path").pack(side=LEFT)
+        ttk.Entry(
+            frm_rom,
+            textvariable=self.var_rom_path,
+            ).pack(side=LEFT, expand=True, fill='x')
+        ttk.Button(
+            frm_rom,
+            text="📁",
+            command=self._set_rom_path_filepicker,
+            ).pack(side=LEFT)
+        frm_rom.pack(fill='x')
+
+        frm_buttons = ttk.Frame(self)
+        ttk.Button(
+            frm_buttons,
+            text="Run",
+            command=self._run,
+            ).pack(side=RIGHT)
+        ttk.Button(
+            frm_buttons,
+            text="Cancel",
+            command=self._cancel,
+            ).pack(side=RIGHT)
+        frm_buttons.pack()
 
 
 def get_params(rom_path: Optional[Path], cfg: Config) -> Params:
@@ -157,12 +279,9 @@ def run(params: Params):
 
 
 def gui(params: Params, cfg: Config):
-    root = Tk()
-    frm = ttk.Frame(root, padding=10)
-    frm.grid()
-    ttk.Label(frm, text="Hello World!").grid(column=0, row=0)
-    ttk.Button(frm, text="Quit", command=root.destroy).grid(column=1, row=0)
-    root.mainloop()
+    app = App(params, cfg)
+    app.mainloop()
+    return app.cancelled, params
 
 
 if __name__ == "__main__":
@@ -181,6 +300,12 @@ if __name__ == "__main__":
 
     params = get_params(rom, cfg)
     if (force_gui or (not params.verify())):
-        params = gui(params, cfg)
+        if params.core_path is None:
+            params.core_path = cfg.get_last_core_picked()
+        if params.rom_path is None:
+            params.rom_path = cfg.get_last_rom_picked()
+        cancelled, params = gui(params, cfg)
+        if cancelled:
+            exit(1)
         cfg.update_from_params(params)
     run(params)
