@@ -337,15 +337,26 @@ if __name__ == "__main__":
         help="Force gui",
         action="store_true",
     )
+    parser.add_argument(
+        "-e",
+        help="Exit if rom isn't specified or default core is unknown",
+        action="store_true",
+    )
     parser.add_argument("ROM", nargs="?", default=None, type=Path)
     args = parser.parse_args()
     force_gui = args.g
+    force_exit = args.e
     rom = args.ROM
-
+    
     cfg = Config()
 
     params = get_params(rom, cfg)
-    if (force_gui or (not params.verify())):
+    verified = params.verify()
+
+    if (force_exit and (not verified)):
+        exit(2)
+
+    if (force_gui or (not verified)):
         if params.core_path is None and params.rom_path is None:
             # no rom specified, try last rom played
             params.core_path = cfg.get_last_core_picked()
