@@ -347,7 +347,7 @@ if __name__ == "__main__":
     force_gui = args.g
     force_exit = args.e
     rom = args.ROM
-    
+
     cfg = Config()
 
     params = get_params(rom, cfg)
